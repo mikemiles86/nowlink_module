@@ -1,0 +1,8 @@
+name = Now Link
+project = "now_link"
+package = Date/Time
+description = Add A 'Now Link' to node date fields, to set values to current timestamp
+dependencies[] = date
+configure = admin/config/content/nowlink
+core = 7.x
+

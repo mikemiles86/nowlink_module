@@ -1,0 +1,169 @@
+<?php
+/**
+ * @file nowlink.module
+ * contains implementations of module hooks
+ */
+ 
+ 
+/**
+ * Implements hook_permission()
+ */
+function nowlink_permission() {
+  return array(
+  'access now link'    => array(
+    'title'        => t('Access now link'),
+    'description'  => t('can access the now link for a date field'),
+  ),
+  'manage now link'    => array(
+    'title'        => t('Manage now link'),
+    'description'  => t('can manage the now link settings'),
+  ),
+  );
+}
+
+/**
+ * Implements hook_menu()
+ */
+function nowlink_menu(){
+	//non ajax callback for updating field data
+  $items['admin/nowlink/set-now-date/nojs/%'] = array(
+    'page callback'  => 'nowlink_set_now_date',
+    'page arguments'  => array(3,4),
+    'access arguments'=> array('access now link'),
+    'type'      => MENU_CALLBACK,
+  );
+  //ajax callback for updateing field data
+  $items['admin/nowlink/set-now-date/ajax/%'] = array(
+    'delivery callback'  => 'ajax_deliver',
+  )+$items['admin/nowlink/set-now-date/nojs/%'];
+  
+	//admin settings form
+  $items['admin/config/content/nowlink'] = array(
+    'title'        => 'Now Link Settings',
+    'description'    => 'entity, field, display settings for the now link',
+    'page callback'    => 'drupal_get_form',
+    'page arguments'  => array('nowlink_settings_form'),
+    'access arguments'  => array('manage now link'),
+		'file'  => 'nowlink.admin.inc',
+  );
+  
+  return $items;
+}
+
+/** 
+ * Implements hook_node_view
+ */
+function nowlink_node_view($node,$view_mode,$langcode){
+  // retrieve default settings
+  $default_settings = nowlink_get_default_settings();
+  $field  = $default_settings['field'];
+  //if the current node is the correct type, and correct view mode, and the user has access to use the now link
+  if (($node->type == $default_settings['node_type']) && ($view_mode == $default_settings['view_mode']) && user_access('access now link')){
+    //check if the field has been set by admin and it is present in this node
+    if ($field && isset($node->content[$field])){
+      //set a token value for the url for security reasons
+      $query   = array('tok'=>drupal_get_token('set_now_date'.$node->nid))+drupal_get_destination();
+      //add link attributes, notibly the ajax class
+      $options   = array('attributes'=>array('class'=>array('use-ajax')),'query'=>$query);
+      // build the link
+      $link    = l(t($default_settings['link_text']),'admin/nowlink/set-now-date/nojs/'.$node->nid,$options);
+      //make sure drupals ajax functionlaity is loaded
+      drupal_add_library('system','drupal.ajax');
+      //get current prefix/suffix values
+      $suffix = isset($node->content[$field]['#suffix']) ? $node->content[$field]['#suffix']:'';
+      //add link to field suffix
+      $node->content[$field]['#suffix'] = $suffix.$link;
+    }
+  }
+}
+
+/**
+ * Set the date of a node date field to now.
+ *
+ * @parameters $ajax string
+ *  string value as to if called by ajax or not
+ *
+ * @parameters $nid int
+ *  the node id of the node to update
+ *
+ * @return array
+ *  if called by ajax, will return an array as needed by drupals ajax functionality
+ */
+function nowlink_set_now_date($ajax,$nid){
+  $default_settings = nowlink_get_default_settings();
+  $field = $default_settings['field'];
+  //make sure token is passed and it is vald
+  if (empty($_GET['tok']) || !drupal_valid_token($_GET['tok'],'set_now_date'.$nid)){
+		//no token/invalid toke return access denied.
+    return MENU_ACCESS_DENIED;
+  // see if can load the node
+  }else if ($node = node_load($nid)){
+    //double check that node is the correct type and has the correct field
+    if (($node->type == $default_settings['node_type'])&&(isset($node->$field))){
+			// going deeper into $node->$field (such as $node->$field[$node->language] was having issues
+			// pass to a var to make easier
+			$node_field = &$node->$field;
+			
+			//get the current timestampe
+			$time = mktime();
+			$date	= false;
+			//based on date type, need to transform
+			switch ($node_field[$node->language][0]['date_type']){
+				case 'date':
+					//plain date needs in the format: 2012-01-12T06:04:02
+					$date = date('Y-m-d\TH:i:s',$time);
+					break;
+				case 'datestamp':
+					//needs just the timestamp
+					$date = $time;
+					break;
+				default:
+					//by default use date formatted as 2012-01-12 06:04:02
+					$date = date('Y-m-d H:i:s',$time);
+					break;
+			}
+			
+			if ($date){
+				//update the field value
+				$node_field[$node->language][0]['value'] = $date;
+				//update the node
+				node_save($node);
+			}
+      //was this function called via ajax?
+      if ($ajax == 'ajax'){
+        //need to return the new field value
+        //get view infor for the field
+        $view_field = field_view_field('node',$node,$field,$default_settings['view_mode']);
+				$view_field = drupal_render($view_field);
+        //will replace based on distinct field class .{field-name}
+				$css_class = '.field-name-'.str_replace('_','-',$field);
+        //use ajax command to replace inner HTML of selected calss
+        $commands = array(ajax_command_replace($css_class,	$view_field));
+        //return ajax response
+        return array(
+          '#type'  => 'ajax',
+          '#commands'  => $commands,
+					'#settings'	=> 1,
+        );
+      }else{
+        //not called by ajax, return to setination with an update message.
+        drupal_set_message(t('Date Updated to Now'));
+        drupal_goto();
+      }
+    }
+  }
+}
+
+/**
+ * Return array of settings for the Now Link module
+ */
+function nowlink_get_default_settings(){
+  return array(
+    'node_type'  => variable_get('nowlink_target_node_type','article'),
+    'view_mode'  => variable_get('nowlink_target_view_mode','full'),
+    'field'    => variable_get('nowlink_target_date_field',false),
+    'link_text'    => variable_get('nowlink_link_text','Set as Now'),
+  );
+}
+
+
