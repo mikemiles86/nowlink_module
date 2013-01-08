@@ -135,8 +135,8 @@ function nowlink_set_now_date($ajax,$nid){
         //get view infor for the field
         $view_field = field_view_field('node',$node,$field,$default_settings['view_mode']);
 				$view_field = drupal_render($view_field);
-        //will replace based on distinct field class .{field-name}
-				$css_class = '.field-name-'.str_replace('_','-',$field);
+        //will replace based on distinct field class #node-{$nid} .{field-name}
+				$css_class = '#node-'.$nid.' .field-name-'.str_replace('_','-',$field);
         //use ajax command to replace inner HTML of selected calss
         $commands = array(ajax_command_replace($css_class,	$view_field));
         //return ajax response
